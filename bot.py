@@ -8,8 +8,12 @@ from telegram.ext import (
 )
 from chat import task_selector, new_restaurant, suggest_places, extract_restaurant_data, merge_memory, get_missing_fields, generate_followup_question, generate_restaurant_summary, save_vector_in_db
 from telegram.ext import CommandHandler
+from dotenv import load_dotenv
+import os
 
-BOT_TOKEN = "8836268238:AAFldzar78VoB4cSes4iyDjuemBzJUgNczE"
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
