@@ -353,13 +353,106 @@ async def generate_restaurant_summary(memory):
 
     return response.choices[0].message.content
 
+PRONOUNS = [
+    "it",
+    "there",
+    "they",
+    "them",
+    "this",
+    "that",
+    "he",
+    "she",
+    "him",
+    "her"
+]
+
+def resolve_query(user_query, memory):
+
+    lower_query = user_query.lower()
+
+    has_pronoun = any(
+        pronoun in lower_query.split()
+        for pronoun in PRONOUNS
+    )
+
+    active_restaurant = memory.get("active_restaurant")
+    active_food = memory.get("active_food")
+    active_location = memory.get("active_location")
+    active_topic = memory.get("active_topic")
+
+    if has_pronoun and (active_restaurant or active_location or active_food or active_topic):
+
+        replacements = {
+            "there": f"at {active_restaurant}",
+            "it": active_restaurant,
+            "this place": active_restaurant
+        }
+
+        resolved_query = lower_query
+
+        for old, new in replacements.items():
+            resolved_query = resolved_query.replace(old, new)
+
+        return resolved_query
+
+    return user_query
+
+def update_active_restaurant(ai_response, memory):
+
+    prompt = f"""
+    Extract restaurant name, food item, location of restaurant and the topic being talked about from text.
+
+    Text:
+    {ai_response}
+
+    Return only JSON:
+    {{
+      "restaurant_name": string | null,
+      "food_item": string | null,
+      "location": string | null,
+      "topic": string | null
+    }}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type":"json_object"},
+        messages=[
+            {
+                "role":"user",
+                "content": prompt
+            }
+        ]
+    )
+
+    data = json.loads(
+        response.choices[0].message.content
+    )
+
+    if data.get("restaurant_name"):
+        memory["active_restaurant"] = data["restaurant_name"]
+    if data.get("food_item"):
+        memory["active_food"] = data["food_item"]
+    if data.get("location"):
+        memory["active_location"] = data["location"]
+    if data.get("topic"):
+        memory["active_topic"] = data["topic"]
+
 class SuggestResponse(BaseModel):
     end_conversation: bool = False
     response: str = ""
 
 async def suggest_places(user_query, memory, query_number):
+
+    # 1. Resolve pronouns
+    resolved_query = resolve_query(
+        user_query,
+        memory
+    )
+
+    # 2. Vector search
     results = vector_store.similarity_search(
-        query=user_query,
+        query=resolved_query,
         k=5
     )
 
@@ -371,37 +464,63 @@ async def suggest_places(user_query, memory, query_number):
     prompt = f"""
         You are a food recommendation assistant.
 
-        User Query:
+        Current User Query:
         {user_query}
 
-        Conversation History:
-        {(memory or {}).get("conversation", {})}
+        Resolved Query:
+        {resolved_query}
 
-        Retrieved Cafe Data:
+        Conversation History:
+        {memory.get("conversation", [])}
+
+        Active Conversation Memory:
+
+        * Current Restaurant: {memory.get("active_restaurant")}
+        * Current Food Item: {memory.get("active_food")}
+        * Current Location: {memory.get("active_location")}
+        * Current Topic: {memory.get("active_topic")}
+
+        Retrieved Restaurant Data:
         {context}
 
-        I will ask questions about restaurants, cafes, food carts and places where I can go to eat. 
-        The places will have attributes such as ambience, vibes, aesthetic, location, postive reviews, negative reviews, food items, service, who to go with, parking, etc.
-        You have to answer in 2 lines only in response field. Give answer from context and conversation history. If the answer is not in context or conversation history, you can give a suggestion from your own.
+        The user may refer to previously discussed restaurants, cafes, places, or food items using pronouns such as:
 
-        Answer using the following JSON structure only:
+        * it
+        * there
+        * they
+        * them
+        * this place
+        * that cafe
+        * he
+        * she
+
+        Always resolve these references using Active Conversation Memory and Conversation History.
+
+        Important Rules:
+
+        * Never invent unrelated restaurants.
+        * If the user says "there", "it", or similar pronouns, assume they refer to the latest relevant restaurant unless context clearly changes.
+        * Prefer Retrieved Restaurant Data first.
+        * Use Conversation History when retrieval is insufficient.
+        * If information is unavailable, give a reasonable suggestion.
+
+        Return ONLY valid JSON in this format:
 
         {{
             "end_conversation": boolean,
             "response": string
         }}
 
-        Rules:
-        - If the user is asking for recommendations or information, set end_conversation to false and put your answer in response.
-        - If the user clearly indicates that they are satisfied and want to end the conversation (e.g. "thanks", "that's all", "bye", "thank you"), set end_conversation to true and leave response empty.
-        - Answer in a maximum of 2 lines.
-        - Use context and conversation history whenever possible.
-        - Return only valid JSON.
+        Additional Rules:
 
-
-        Do not include any additional text, explanation, or formatting when returning the end_convo response.
+        * Response must be concise.
+        * Maximum 2 lines.
+        * No markdown.
+        * No explanations outside JSON.
+        * If user says thanks/bye/etc, set end_conversation=true and response="".
     """
 
+    # 3. Generate AI response
     response = client.chat.completions.parse(
         model="gpt-4o-mini",
         response_format=SuggestResponse,
@@ -413,10 +532,17 @@ async def suggest_places(user_query, memory, query_number):
         ]
     )
 
+    # 4. Extract AI response
     result = response.choices[0].message.parsed
-
     ai_response = result.response
 
+    # 5. Update active restaurant memory
+    update_active_restaurant(
+        ai_response,
+        memory
+    )
+
+    # 6. Save conversation in MYSQL DB
     cursor = connection.cursor()
     insert_query = """
         INSERT INTO ai_response (context, user_query, ai_response)
@@ -426,16 +552,21 @@ async def suggest_places(user_query, memory, query_number):
     cursor.execute(insert_query, (context, user_query, ai_response))
     connection.commit()
 
-    if query_number == 1:
-        conversation = {}
-    else:
-        conversation = memory["conversation"]
+    # 7. Save conversation history
+    conversation = memory.get("conversation", [])
         
     if result.end_conversation:
         memory["end_conversation"] = True
     else:
         memory["end_conversation"] = False
-        conversation[query_number] = {"user_query": user_query, "ai_response": ai_response}
+        # if more than 5 conversation, remove first element then add one at last
+        if query_number > 5: 
+            conversation.pop(0)
+        # add current query and response to conversation memory
+        conversation.append({
+            "user_query": user_query,
+            "ai_response": ai_response
+        })
         memory["query_count"] = query_number
         
     memory["conversation"] = conversation
