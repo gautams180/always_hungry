@@ -17,7 +17,17 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🍔 Hey! I am your food memory AI agent."
+        """
+        🍕 Welcome to Always Hungry AI Agent!
+
+        Humans forget. Stomachs don't.
+
+        I remember your restaurant visits, food experiences, favorite dishes, and disappointments—so you never waste time wondering where to eat again.
+
+        Just tell me where you've been, and when hunger strikes, I'll tell you where to go.
+
+        Ready to feed my memory? 😋
+        """
     )
 
 
