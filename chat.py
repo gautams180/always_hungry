@@ -134,11 +134,13 @@ REQUIRED_FIELDS = [
     "location",
     "category",
     "ambience",
-    "food_items",
+    "food_menu",
+    "favourite_food",
     "service",
     "price_range",
     "positive_review",
-    "negative_review"
+    "negative_review",
+    "additional_information"
 ]
 
 def get_missing_fields(memory):
@@ -294,13 +296,14 @@ class SuggestResponse(BaseModel):
     end_conversation: bool = False
     response: str = ""
 
-async def suggest_places(user_query, memory, query_number):
+async def suggest_places(user_query, memory):
 
     # 1. Resolve pronouns
     resolved_query = resolve_query(
         user_query,
         memory
     )
+    print("\nResolved_query",resolved_query)
 
     # 2. Vector search
     results = vector_store.similarity_search(
@@ -312,6 +315,8 @@ async def suggest_places(user_query, memory, query_number):
         doc.page_content
         for doc in results
     ])
+
+    print("\nContext: ", context)
 
     prompt = suggest_places_prompt(user_query, resolved_query, memory, context)
 
@@ -355,14 +360,13 @@ async def suggest_places(user_query, memory, query_number):
     else:
         memory["end_conversation"] = False
         # if more than 5 conversation, remove first element then add one at last
-        if query_number > 5: 
+        if len(conversation) > 5: 
             conversation.pop(0)
         # add current query and response to conversation memory
         conversation.append({
             "user_query": user_query,
             "ai_response": ai_response
         })
-        memory["query_count"] = query_number
         
     memory["conversation"] = conversation
 

@@ -116,17 +116,37 @@ def extract_restaurant_data_prompt(current_memory, user_message):
 
 
 def generate_followup_question_prompt(memory, missing_fields):
-     return f"""
-    Known restaurant information:
+    return f"""
+    You are helping a user record their past experience at a restaurant, cafe, food truck, or food place.
+
+    Current restaurant information collected so far:
 
     {json.dumps(memory, indent=2)}
 
-    Missing fields:
+    Missing information:
 
     {missing_fields}
 
-    Ask ONE natural conversational
-    question to collect more information.
+    Your task:
+    - Ask ONLY ONE follow-up question.
+    - The user is a CUSTOMER who has already visited the place.
+    - The user is NOT the owner, manager, or employee of the restaurant.
+    - Ask about the user's personal experience at the place.
+    - Use the information already collected to make the question natural and conversational.
+    - Do not ask for information that is already available.
+    - If multiple fields are missing, choose the most important one and ask about it.
+    - Keep the question short and friendly.
+    - Do not ask multiple questions in one message.
+
+    Examples:
+
+    If ambience is missing:
+    "How was the ambience there?"
+
+    If food_items is missing:
+    "What did you try there, and which dishes stood out to you?"
+
+    Return ONLY the question text.
     """
 
 
@@ -221,7 +241,7 @@ def suggest_places_prompt(user_query, resolved_query, memory, context):
     """
 
 
-def task_selector_prompt():
+def old_task_selector_prompt():
     return """
         You are a routing assistant.
 
@@ -242,9 +262,84 @@ def task_selector_prompt():
         Return only valid JSON matching the schema.
     """
 
+def task_selector_prompt():
+    return """
+    You are a routing assistant for a food memory and recommendation AI.
+
+    Your job is to select exactly one tool.
+
+    Available tools:
+
+    1. new_restaurant
+    Use this when the user is:
+    - sharing a restaurant, cafe, food truck, food cart, or food experience
+    - describing food they ate
+    - answering questions about a restaurant that is currently being recorded
+    - providing details such as:
+    - restaurant name
+    - location
+    - ambience
+    - service
+    - food items
+    - price
+    - reviews
+
+    Examples:
+    "I visited 90's Cafe yesterday"
+    "The ambience was amazing"
+    "I had pasta and pizza"
+    "The service was slow"
+    "It was a little expensive"
+
+    → new_restaurant
 
 
+    2. suggest_places
+    Use this when the user is:
+    - asking for recommendations
+    - asking where to eat
+    - asking about a restaurant already stored in memory
+    - asking for information about a restaurant
+    - asking follow-up questions about a restaurant
+    - asking about food, ambience, service, reviews, pricing, location, or experiences
 
+    Examples:
+    "Suggest a cafe"
+    "Where should I eat today?"
+    "What information do you have about 90's Cafe?"
+    "How was the service at 90's Cafe?"
+    "What food did I like there?"
+    "Tell me about Ek Saath"
+    "Which cafe had the best pasta?"
+
+    → suggest_places
+
+
+    3. greeting
+    Use this when the user is:
+    - greeting the assistant
+    - saying hello, hi, hey
+    - having unrelated small talk
+
+    Examples:
+    "hi"
+    "hello"
+    "good morning"
+
+    → greeting
+
+
+    Important Rules:
+
+    - Questions about restaurants should usually be routed to suggest_places.
+    - Restaurant information retrieval is suggest_places.
+    - Restaurant information collection is new_restaurant.
+    - If the user is asking about a named restaurant, prefer suggest_places.
+    - If unsure between new_restaurant and suggest_places, prefer suggest_places.
+    - Your response should only be related to restaurants , food and the query about them.
+
+    Return only valid JSON matching the schema.
+    """
 
 
 
