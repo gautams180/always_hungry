@@ -10,6 +10,7 @@ from chat import task_selector, new_restaurant, suggest_places, extract_restaura
 from telegram.ext import CommandHandler
 from dotenv import load_dotenv
 import os
+from voice import get_transcript
 
 load_dotenv()
 
@@ -162,7 +163,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass
+    print("Handling voice message")
+    voice = update.message.voice
+    user_message = await get_transcript(voice, context)
+
+    print("\n\nUser message: ", user_message)
+
+    if user_message in [
+        "yes",
+        "yeah",
+        "yep",
+        "ok",
+        "okay",
+        "sure",
+        "no",
+        "nah"
+    ]:
+        await handle_confirmation_response(context, user_message, update)
+        return
+
+    task = await task_selector(user_message, context.user_data)
+    print("\nTop memory", context.user_data)
+
+    context.user_data["active_task"] = task.tool
+    
+    if task.tool == "new_restaurant":
+
+        await new_restaurant_operation(user_message, context, update)
+
+    elif task.tool == "suggest_places":
+
+        await suggest_places_operation(context, user_message, update)
+
+    elif task.tool == "greeting":
+        await update.message.reply_text(
+            task.content
+        )
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
