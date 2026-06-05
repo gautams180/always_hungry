@@ -63,14 +63,15 @@ class RestaurantMemory(BaseModel):
     service: Optional[str] = None
     price_range: Optional[str] = None
 
-    food_items: List[str] = []
+    food_menu: List[str] = []
+    favourite_food: List[str] = []
 
     companions: List[str] = []
 
     positive_review: Optional[str] = None
     negative_review: Optional[str] = None
 
-    other_information: Optional[str] = None
+    additional_information: Optional[str] = None
 
 class RestaurantExtraction(BaseModel):
     name: Optional[str] = None
@@ -81,19 +82,22 @@ class RestaurantExtraction(BaseModel):
     service: Optional[str] = None
     price_range: Optional[str] = None
 
-    food_items: Optional[list[str]] = None
+    food_menu: Optional[list[str]] = None
+    favourite_food: Optional[list[str]] = None
     companions: Optional[list[str]] = None
 
     positive_review: Optional[str] = None
     negative_review: Optional[str] = None
 
-    other_information: Optional[str] = None
+    additional_information: Optional[str] = None
 
 async def extract_restaurant_data(
     current_memory: dict,
     user_message: str
 ):
     prompt = extract_restaurant_data_prompt(current_memory, user_message)
+    print("\nInside extract_restaurant_data")
+    print("current_memory",current_memory)
 
     response = client.chat.completions.parse(
         model="gpt-4o-mini",
@@ -106,6 +110,7 @@ async def extract_restaurant_data(
         ]
     )
 
+    print("Extracted Response", response.choices[0].message.parsed)
     return response.choices[0].message.parsed
 
 def merge_memory(existing, new_data):
@@ -134,10 +139,11 @@ REQUIRED_FIELDS = [
     "location",
     "category",
     "ambience",
-    "food_menu",
-    "favourite_food",
     "service",
     "price_range",
+    "food_menu",
+    "favourite_food",
+    "companions",
     "positive_review",
     "negative_review",
     "additional_information"
@@ -158,6 +164,7 @@ async def generate_followup_question(
     memory,
     missing_fields
 ):
+    print("\nBefore next followup question missing fields: ", missing_fields)
     prompt = generate_followup_question_prompt(memory, missing_fields)
 
     response = client.chat.completions.create(
@@ -170,6 +177,7 @@ async def generate_followup_question(
         ]
     )
 
+    print("\nFollowup question",response.choices[0].message.content)
     return response.choices[0].message.content
 
 message_history = [
@@ -303,20 +311,21 @@ async def suggest_places(user_query, memory):
         user_query,
         memory
     )
-    print("\nResolved_query",resolved_query)
+    # print("\nmemory : ", memory)
+    # print("\nResolved_query",resolved_query)
 
     # 2. Vector search
     results = vector_store.similarity_search(
         query=resolved_query,
         k=5
     )
+    # print("\results: ", results)
 
     context = "\n\n".join([
         doc.page_content
         for doc in results
     ])
 
-    print("\nContext: ", context)
 
     prompt = suggest_places_prompt(user_query, resolved_query, memory, context)
 
@@ -335,6 +344,7 @@ async def suggest_places(user_query, memory):
     # 4. Extract AI response
     result = response.choices[0].message.parsed
     ai_response = result.response
+    print("ai_response",ai_response)
 
     # 5. Update active restaurant memory
     update_active_restaurant(
@@ -382,7 +392,7 @@ class TaskSelectorOutput(BaseModel):
     input: Optional[str] = None
     content: Optional[str] = None
 
-async def task_selector(query):
+async def task_selector(query, user_data):
     greetings = [
         "hi",
         "hello",
@@ -396,8 +406,12 @@ async def task_selector(query):
             tool="greeting",
             content="Hello! How can I help?"
         )
+    
+    active_task = user_data.get("active_task", None)
+    conversation_memory = user_data.get("conversation_memory", None)
+    restaurant_memory = user_data.get("restaurant_memory", None)
 
-    SYSTEM_PROMPT = task_selector_prompt()
+    SYSTEM_PROMPT = task_selector_prompt(active_task, conversation_memory, restaurant_memory)
 
     response = client.chat.completions.parse(
         model="gpt-4o-mini",

@@ -143,21 +143,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_confirmation_response(context, user_message, update)
         return
 
-    task = await task_selector(user_message)
+    task = await task_selector(user_message, context.user_data)
     print("\nTop memory", context.user_data)
-
-    # if "restaurant_memory" in context.user_data:
-    # if task.tool == "new_restaurant" and "restaurant_memory" in context.user_data :
-
-    #     new_restaurant_operation(user_message, context, update)
-    #     return
-
-    # if task.tool == "suggest_places" and "conversation_memory" in context.user_data:
-
-    #     suggest_places_operation(context, user_message, update)
-    #     return
-
-    # task = await task_selector(user_message)
 
     context.user_data["active_task"] = task.tool
     
@@ -174,12 +161,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             task.content
         )
 
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pass
+
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 
 app.add_handler(
     MessageHandler(filters.TEXT, handle_message)
+)
+
+app.add_handler(
+    MessageHandler(filters.VOICE, handle_voice_message)
 )
 
 print("Bot started...")

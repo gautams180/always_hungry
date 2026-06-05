@@ -117,65 +117,50 @@ def extract_restaurant_data_prompt(current_memory, user_message):
 
 def generate_followup_question_prompt(memory, missing_fields):
     return f"""
-    You are helping a user record their past experience at a restaurant, cafe, food truck, or food place.
-
-    Current restaurant information collected so far:
+    Known restaurant information:
 
     {json.dumps(memory, indent=2)}
 
-    Missing information:
+    Missing fields:
 
     {missing_fields}
 
-    Your task:
-    - Ask ONLY ONE follow-up question.
-    - The user is a CUSTOMER who has already visited the place.
-    - The user is NOT the owner, manager, or employee of the restaurant.
-    - Ask about the user's personal experience at the place.
-    - Use the information already collected to make the question natural and conversational.
-    - Do not ask for information that is already available.
-    - If multiple fields are missing, choose the most important one and ask about it.
-    - Keep the question short and friendly.
-    - Do not ask multiple questions in one message.
-
-    Examples:
-
-    If ambience is missing:
-    "How was the ambience there?"
-
-    If food_items is missing:
-    "What did you try there, and which dishes stood out to you?"
-
-    Return ONLY the question text.
+    User has visited a restaurant/cafe/food place/food truck. You have to ask a question related to the missing fields. The question should not contain more than 2 missing fields.
     """
 
 
 def generate_restaurant_summary_prompt(memory):
     return f"""
-    Restaurant Information:
+    You are converting structured restaurant data into a report.
 
+    Rules:
+    1. Use ALL information provided.
+    2. Do NOT omit any field.
+    3. Do NOT invent or infer information.
+    4. If a field is missing, write "Not provided".
+    5. Preserve all menu items, companions, reviews and additional information.
+    6. Only use information present in the restaurant data.
+    7. Do not add negative reviews unless explicitly provided.
+    8. Keep the report concise but complete.
+
+    Restaurant Information:
     {json.dumps(memory, indent=2)}
 
-    Create a restaurant summary in the following format:
+    Output format:
 
     Cafe Name:
     Location:
     Category:
-    Price Range:
-
     Ambience:
-
-    Popular Food:
-
+    Service:
+    Price Range:
+    Food Menu Items:
+    Favourite Food:
+    Companions:
     Positive Reviews:
-
     Negative Reviews:
-
     Best For:
-
-    Other Information:
-
-    If user inputs extra information which does not fit in these topics, create a topic by your own and save the extra information, do not skip it. Keep it concise and natural.
+    Additional Information:
     """
 
 
@@ -241,7 +226,184 @@ def suggest_places_prompt(user_query, resolved_query, memory, context):
     """
 
 
-def old_task_selector_prompt():
+def task_selector_prompt(active_task, conversation_memory, restaurant_memory): 
+    return """
+        You are a routing assistant for a food memory and recommendation AI.
+
+        Your job is to select exactly one tool.
+
+        Active Task:
+        {active_task}
+
+        Previous Conversation:
+        {conversation_memory}
+
+        New Restaurant Conversation:
+        {restaurant_memory}
+
+        Available tools:
+
+        1. new_restaurant
+        Use when the user is providing or continuing restaurant information, including:
+
+        * restaurant/cafe/food truck experiences
+        * food they ate
+        * ambience
+        * service
+        * pricing
+        * reviews
+        * location
+        * menu items
+        * answers to questions about a restaurant currently being recorded
+
+        Examples:
+
+        * "I visited 90's Cafe yesterday"
+        * "The ambience was amazing"
+        * "I had pasta and pizza"
+        * "The service was slow"
+        * "It was expensive"
+
+        2. suggest_places
+        Use when the user is:
+
+        * asking for recommendations
+        * asking where to eat
+        * asking about a restaurant already stored in memory
+        * requesting restaurant information
+        * asking follow-up questions about food, ambience, service, pricing, reviews, location, or experiences
+
+        Examples:
+
+        * "Suggest a cafe"
+        * "Where should I eat today?"
+        * "Tell me about 90's Cafe"
+        * "How was the service there?"
+        * "Which cafe had the best pasta?"
+
+        3. greeting
+        Use when the user is:
+        - greeting the assistant
+        - saying hello, hi, hey
+        - engaging in unrelated small talk
+        - talking about topics unrelated to restaurants, cafes, food places, dining experiences, food recommendations, or the current restaurant conversation
+
+        Examples:
+        - "hi"
+        - "hello"
+        - "good morning"
+        - "How's your day?"
+        - "Tell me a joke"
+        - "What's the weather?"
+        - "Help me with Python"
+        - "What is React?"
+
+        Routing Rules:
+
+        * Restaurant information collection → new_restaurant
+        * Restaurant information retrieval → suggest_places
+        * Questions about restaurants usually → suggest_places
+        * If the user asks about a specific named restaurant, prefer suggest_places
+        * If unsure between new_restaurant and suggest_places, prefer suggest_places
+
+        Active Task Rules:
+
+        If active_task = "new_restaurant", assume restaurant collection is still in progress.
+
+        Continue selecting new_restaurant when the user:
+
+        * answers a question
+        * skips a question
+        * refuses to answer
+        * says they don't know
+        * asks to move on
+        * says:
+
+        * "skip"
+        * "next"
+        * "next question"
+        * "continue"
+        * "pass"
+        * "leave it blank"
+        * "not sure"
+        * "I don't know"
+        * "I don't want to answer that"
+        * "don't ask that"
+
+        These responses do NOT end restaurant collection.
+
+        Only switch away from new_restaurant if the user:
+
+        * asks for recommendations
+        * asks for restaurant information
+        * asks about a stored restaurant
+        * starts an unrelated conversation
+        * greets the assistant without continuing the restaurant discussion
+
+        Conversation Scope Rules:
+
+        This assistant only handles restaurant, cafe, food, dining, and food recommendation conversations.
+
+        If the user's message is unrelated to:
+        - restaurants
+        - cafes
+        - food places
+        - dining experiences
+        - food reviews
+        - food recommendations
+        - the current restaurant information being collected
+
+        then select:
+        → greeting
+
+        Examples:
+
+        User: "What is Python?"
+        → greeting
+
+        User: "Help me fix my Node.js code"
+        → greeting
+
+        User: "What's the weather today?"
+        → greeting
+
+        User: "Tell me a joke"
+        → greeting
+
+        Greeting Response Rules
+
+        If active_task = "greeting":
+
+        1. If the user is greeting the assistant:
+        - Set content to a friendly greeting.
+        - Briefly explain that you help users save restaurant memories and discover places to eat.
+
+        Example:
+        {
+            "tool": "greeting",
+            "content": "Hi! 👋 I'm your food companion. Tell me about a restaurant you've visited or ask me for food recommendations!"
+        }
+
+        2. If the user is talking about something unrelated to food, restaurants, cafes, dining, or the current restaurant conversation:
+        - Set content to a fun and friendly message explaining that you only talk about food and restaurants.
+        - Encourage the user to share a restaurant experience or ask for recommendations.
+
+        Example:
+        {
+            "tool": "greeting",
+            "content": "🍕 I may not know much about React or Python, but I love talking about food! Tell me about a restaurant you've visited or ask me where to eat."
+        }
+
+        Generate different content each time in greeting.
+
+        3. Keep content short (1-2 sentences).
+        4. Keep the tone friendly and food-themed when possible.
+
+        Return only valid JSON matching the schema.
+
+    """
+
+def task_selector_prompt_minus_2():
     return """
         You are a routing assistant.
 
@@ -262,11 +424,20 @@ def old_task_selector_prompt():
         Return only valid JSON matching the schema.
     """
 
-def task_selector_prompt():
+def task_selector_prompt_minus_1(active_task, conversation_memory, restaurant_memory):
     return """
     You are a routing assistant for a food memory and recommendation AI.
 
     Your job is to select exactly one tool.
+
+    Active Task:
+    {active_task}
+
+    Previous Conversation:
+    {conversation_memory}
+
+    New Restaurant Conversation:
+    {restaurant_memory}
 
     Available tools:
 
@@ -337,6 +508,59 @@ def task_selector_prompt():
     - If the user is asking about a named restaurant, prefer suggest_places.
     - If unsure between new_restaurant and suggest_places, prefer suggest_places.
     - Your response should only be related to restaurants , food and the query about them.
+
+    If active_task is "new_restaurant", continue selecting "new_restaurant" when the user:
+
+    - skips a question
+    - refuses to answer a specific question
+    - says they don't know
+    - asks to move on
+    - says "next question"
+    - says "skip"
+    - says "don't ask that"
+    - says "I don't want to answer that"
+    - says "leave it blank"
+    - says "not sure"
+    - says "continue"
+
+    These responses indicate that restaurant information collection is still in progress and should not change the active task.
+
+    Examples:
+
+    Assistant: "Who did you visit the restaurant with?"
+    User: "Skip"
+
+    → new_restaurant
+
+    Assistant: "What was the price range?"
+    User: "I don't know"
+
+    → new_restaurant
+
+    Assistant: "How was the ambience?"
+    User: "Next question"
+
+    → new_restaurant
+
+    Assistant: "What food did you order?"
+    User: "I don't want to answer that"
+
+    → new_restaurant
+
+    Active Task Priority
+
+    If active_task is "new_restaurant":
+
+    - Assume restaurant collection is still ongoing.
+    - Route to "new_restaurant" unless the user explicitly:
+    - asks for recommendations
+    - asks for restaurant information
+    - starts a completely unrelated conversation
+    - greets the assistant without continuing the restaurant discussion
+
+    Skipping a question does NOT end restaurant collection.
+    Moving to the next question does NOT end restaurant collection.
+    Missing information does NOT end restaurant collection.
 
     Return only valid JSON matching the schema.
     """
