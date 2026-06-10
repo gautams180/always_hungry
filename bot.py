@@ -19,7 +19,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         """
-        🍕 Welcome to Always Hungry AI Agent!
+        🍕 Welcome to Byte & Bite AI Agent!
 
         Humans forget. Stomachs don't.
 
@@ -37,8 +37,14 @@ async def suggest_places_operation(context, user_message, update):
         {}
     )
 
-    response = await suggest_places(user_message, memory)
-    print("\nSuggest response", response)
+    user_info = {
+        "id": update.effective_user.id,
+        "username": update.effective_user.username,
+        "full_name": update.effective_user.full_name 
+    }
+
+    response = await suggest_places(user_message, memory, user_info)
+    # print("\nSuggest response", response)
 
     updated_memory = response["memory"]
 
@@ -65,9 +71,16 @@ async def new_restaurant_operation(user_message, context, update):
         {}
     )
 
+    user_info = {
+        "id": update.effective_user.id,
+        "username": update.effective_user.username,
+        "full_name": update.effective_user.full_name 
+    }
+
     extracted = await extract_restaurant_data(
         memory,
-        user_message
+        user_message,
+        user_info
     )
 
     memory = merge_memory(
@@ -88,7 +101,8 @@ async def new_restaurant_operation(user_message, context, update):
         # Clear session
 
         summary = await generate_restaurant_summary(
-            memory
+            memory,
+            user_info
         )
 
         save_vector_in_db(
@@ -106,7 +120,8 @@ async def new_restaurant_operation(user_message, context, update):
 
     question = await generate_followup_question(
         memory,
-        missing_fields
+        missing_fields,
+        user_info
     )
 
     await update.message.reply_text(
@@ -144,8 +159,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_confirmation_response(context, user_message, update)
         return
 
-    task = await task_selector(user_message, context.user_data)
-    print("\nTop memory", context.user_data)
+    task_selector_result = await task_selector(user_message, context.user_data, {
+        "id": update.effective_user.id,
+        "username": update.effective_user.username,
+        "full_name": update.effective_user.full_name 
+    })
+    # print("\nTop memory", context.user_data)
+
+    task = task_selector_result["result"]
+    lifetime_tokens_used = task_selector_result["lifetime_tokens_used"]
+
+    print("lifetime_tokens_used",lifetime_tokens_used)
+
+    # Check tokens used by user
+    if lifetime_tokens_used > 200000:
+        await update.message.reply_text(
+            "You have reached the limit. Please subscribe to continue using Byte And Bite AI Agent"
+        )
+        return
 
     context.user_data["active_task"] = task.tool
     
@@ -163,11 +194,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("Handling voice message")
+    # print("Handling voice message")
     voice = update.message.voice
     user_message = await get_transcript(voice, context)
 
-    print("\n\nUser message: ", user_message)
+    # print("\n\nUser message: ", user_message)
 
     if user_message in [
         "yes",
@@ -183,7 +214,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     task = await task_selector(user_message, context.user_data)
-    print("\nTop memory", context.user_data)
+    # print("\nTop memory", context.user_data)
 
     context.user_data["active_task"] = task.tool
     

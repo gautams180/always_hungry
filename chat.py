@@ -93,11 +93,12 @@ class RestaurantExtraction(BaseModel):
 
 async def extract_restaurant_data(
     current_memory: dict,
-    user_message: str
+    user_message: str,
+    user_info: dict
 ):
     prompt = extract_restaurant_data_prompt(current_memory, user_message)
-    print("\nInside extract_restaurant_data")
-    print("current_memory",current_memory)
+    # print("\nInside extract_restaurant_data")
+    # print("current_memory",current_memory)
 
     response = client.chat.completions.parse(
         model="gpt-4o-mini",
@@ -110,7 +111,10 @@ async def extract_restaurant_data(
         ]
     )
 
-    print("Extracted Response", response.choices[0].message.parsed)
+    tokens_used = response.usage.completion_tokens
+    check_user_exists(user_info, tokens_used)
+
+    # print("Extracted Response", response.choices[0].message.parsed)
     return response.choices[0].message.parsed
 
 def merge_memory(existing, new_data):
@@ -162,9 +166,10 @@ def get_missing_fields(memory):
 
 async def generate_followup_question(
     memory,
-    missing_fields
+    missing_fields,
+    user_info
 ):
-    print("\nBefore next followup question missing fields: ", missing_fields)
+    # print("\nBefore next followup question missing fields: ", missing_fields)
     prompt = generate_followup_question_prompt(memory, missing_fields)
 
     response = client.chat.completions.create(
@@ -177,7 +182,11 @@ async def generate_followup_question(
         ]
     )
 
-    print("\nFollowup question",response.choices[0].message.content)
+    # print("\nFollowup question",response.choices[0].message.content)
+
+    tokens_used = response.usage.completion_tokens
+    check_user_exists(user_info, tokens_used)
+
     return response.choices[0].message.content
 
 message_history = [
@@ -212,7 +221,7 @@ def new_restaurant():
         save_vector_in_db(parsed_result.get("content"))
         # print(f"Token usage: ", tokens_used)
         
-async def generate_restaurant_summary(memory):
+async def generate_restaurant_summary(memory, user_info):
     prompt = generate_restaurant_summary_prompt(memory)
 
     response = client.chat.completions.create(
@@ -225,6 +234,9 @@ async def generate_restaurant_summary(memory):
             }
         ]
     )
+
+    tokens_used = response.usage.completion_tokens
+    check_user_exists(user_info, tokens_used)
 
     return response.choices[0].message.content
 
@@ -304,7 +316,7 @@ class SuggestResponse(BaseModel):
     end_conversation: bool = False
     response: str = ""
 
-async def suggest_places(user_query, memory):
+async def suggest_places(user_query, memory, user_info):
 
     # 1. Resolve pronouns
     resolved_query = resolve_query(
@@ -341,10 +353,13 @@ async def suggest_places(user_query, memory):
         ]
     )
 
+    tokens_used = response.usage.completion_tokens
+    check_user_exists(user_info, tokens_used)
+
     # 4. Extract AI response
     result = response.choices[0].message.parsed
     ai_response = result.response
-    print("ai_response",ai_response)
+    # print("ai_response",ai_response)
 
     # 5. Update active restaurant memory
     update_active_restaurant(
@@ -392,7 +407,7 @@ class TaskSelectorOutput(BaseModel):
     input: Optional[str] = None
     content: Optional[str] = None
 
-async def task_selector(query, user_data):
+async def task_selector(query, user_data, user_info):
     greetings = [
         "hi",
         "hello",
@@ -430,5 +445,47 @@ async def task_selector(query, user_data):
 
     result = response.choices[0].message.parsed
     print("Task Selected ", result)
-    return result
 
+    tokens_used = response.usage.completion_tokens
+    lifetime_tokens_used = check_user_exists(user_info, tokens_used)
+
+    return {
+        "result": result,
+        "lifetime_tokens_used": lifetime_tokens_used
+    }
+
+def check_user_exists(user_info, tokens_used):
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT * FROM users WHERE id = %s",
+        (user_info["id"],)
+    )
+
+    user = cursor.fetchone()
+
+    if user:
+        total_tokens = user[3] + tokens_used
+
+        cursor.execute(
+            """
+            UPDATE users
+            SET tokens_used = %s
+            WHERE id = %s
+            """,
+            (total_tokens, user_info["id"])
+        )
+
+        connection.commit()
+
+        return total_tokens
+    else:
+        cursor.execute(
+            """
+            INSERT INTO users (id, full_name, username, tokens_used)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (user_info["id"], user_info["full_name"], user_info["username"], tokens_used)
+        )   
+        connection.commit()
+
+        return tokens_used
